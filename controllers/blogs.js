@@ -8,7 +8,8 @@ const middleware = require('../utils/middleware')
 
 
 blogsRouter.get('/', async (request, response) => {
-  const blogs = await Blog.find({})
+  const blogs = await Blog
+  .find({})
   .populate('user', {username: 1, name: 1})
   response.json(blogs.map(blog => blog.toJSON()))
 })
@@ -24,37 +25,38 @@ blogsRouter.get('/:id', async (request, response, next) => {
     
 })
 
-blogsRouter.post('/', middleware.userExtractor, async (request, response) => {
+blogsRouter.post('/', async (request, response) => {
 
   const body = request.body
+  const blog = new Blog(body)
 
-  const user = request.user
-
-  logger.info("henkilo: " + user)
+  const token = request.token
+  const decodedToken = jwt.verify(token, process.env.SECRET)
+  
+  if (!decodedToken.id) {
+    return response.status(401).json({ error: 'token missing or invalid' })
+  }
+  const user = await User.findById(decodedToken.id)
 
   if(body.title === undefined && body.url === undefined){
     response.status(400).end()  
   }
-  logger.info("pääseekö tänne")
-  const blog = new Blog({
-    title: body.title,
-    author: body.author,
-    url: body.url,
-    likes: body.likes === undefined ? 0 : body.likes,
-    user: user._id
-  })
-
-  console.log("täällä ollaan")
+  if(!blog.likes){
+    blog.likes=0
+  }
+  blog.user = user
 
   const savedBlog = await blog.save()
   console.log("blogi tallennettu")
   savedBlog.populate('user')
+
   user.blogs = user.blogs.concat(savedBlog._id)
-  user.save() 
-  response.json(savedBlog.toJSON)
+  await user.save() 
+
+  response.status(201).json(savedBlog.toJSON)
 })
 
-blogsRouter.delete('/:id', async (request, response) => {
+blogsRouter.delete('/:id',middleware.userExtractor, async (request, response) => {
   const token = request.token
 
   const decodedToken = jwt.verify(token, process.env.SECRET)
